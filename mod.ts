@@ -151,7 +151,6 @@ export async function downloadNpmPackage({
 
 async function downloadPackageDependencies(depencencies: Record<string, string>, destination: string) {
 	for (const [packageName, version] of Object.entries(depencencies)) {
-		console.log(packageName, version);
 		await downloadNpmPackage({
 			packageName,
 			version,
