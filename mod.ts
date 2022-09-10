@@ -131,6 +131,7 @@ export async function downloadNpmPackage({
 		await fs.ensureFile(destinationPath);
 		const file = await Deno.open(destinationPath, { write: true });
 		await streams.copy(entry, file);
+		file.close();
 	}
 
 	const needsPackageJson = downloadDependencies || downloadDevDependencies;
