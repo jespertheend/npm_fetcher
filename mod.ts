@@ -144,7 +144,7 @@ export async function downloadNpmPackage({
 			await downloadPackageDependencies(packageJson.dependencies || {}, nodeModulesPath);
 		}
 		if (downloadDevDependencies) {
-			// await downloadPackageDependencies(packageJson.downlaod)
+			await downloadPackageDependencies(packageJson.devDependencies || {}, nodeModulesPath)
 		}
 	}
 }
