@@ -1,4 +1,4 @@
-import { Untar } from "https://deno.land/std@0.150.0/archive/tar.ts";
+import { TarEntry, Untar } from "https://deno.land/std@0.150.0/archive/tar.ts";
 import * as streams from "https://deno.land/std@0.150.0/streams/mod.ts";
 import * as fs from "https://deno.land/std@0.150.0/fs/mod.ts";
 import * as path from "https://deno.land/std@0.150.0/path/mod.ts";
@@ -19,7 +19,7 @@ interface NpmPackageDist {
 	shasum: string;
 }
 
-export interface DownloadNpmPackageOptions {
+export interface FetchNpmPackageOptions {
 	/** The name of the package to download, such as "rollup".*/
 	packageName: string;
 	/**
@@ -27,6 +27,9 @@ export interface DownloadNpmPackageOptions {
 	 * This defaults to "latest" if not specified.
 	 */
 	version?: string;
+}
+
+export interface DownloadNpmPackageOptions extends FetchNpmPackageOptions {
 	/**
 	 * The file location to download the package to.
 	 * This defaults to the ${cwd}/npm_packages/${packageName}/${version}.
@@ -47,7 +50,7 @@ export interface DownloadNpmPackageOptions {
 }
 
 /**
- * Fetches package distribution information from npm.
+ * Fetches package distribution information from npm and
  */
 export async function downloadNpmPackage({
 	packageName,
@@ -56,6 +59,49 @@ export async function downloadNpmPackage({
 	downloadDependencies = false,
 	downloadDevDependencies = false,
 }: DownloadNpmPackageOptions) {
+	const fetchedData = await fetchNpmPackage({ packageName, version });
+	if (!destination) {
+		destination = path.resolve(Deno.cwd(), `./npm_packages/${fetchedData.packageName}/${fetchedData.version}`);
+	}
+	for await (const entry of fetchedData.getPackageContents()) {
+		const destinationPath = path.resolve(destination, entry.fileName);
+		if (entry.type == "directory") {
+			await fs.ensureDir(destinationPath);
+			continue;
+		}
+
+		await fs.ensureFile(destinationPath);
+		const file = await Deno.open(destinationPath, { write: true });
+		await streams.copy(entry, file);
+		file.close();
+	}
+
+	const needsPackageJson = downloadDependencies || downloadDevDependencies;
+	if (needsPackageJson) {
+		const packageJsonPath = path.resolve(destination, "package.json");
+		const packageJsonStr = await Deno.readTextFile(packageJsonPath);
+		const packageJson = JSON.parse(packageJsonStr);
+		const nodeModulesPath = path.resolve(destination, "node_modules");
+		if (downloadDependencies) {
+			await downloadPackageDependencies(packageJson.dependencies || {}, nodeModulesPath);
+		}
+		if (downloadDevDependencies) {
+			await downloadPackageDependencies(packageJson.devDependencies || {}, nodeModulesPath);
+		}
+	}
+}
+
+export interface FetchedNpmPackageData {
+	packageName: string;
+	version: string;
+	getPackageContents(): AsyncGenerator<TarEntry>;
+	registryData: NpmPackage;
+}
+
+export async function fetchNpmPackage({
+	packageName,
+	version = "latest",
+}: FetchNpmPackageOptions): Promise<FetchedNpmPackageData> {
 	// The registry api doesn't support versions like ^1.0.0, only exact versions
 	// or "latest" are supported, so if the specified version is not an exact
 	// version, we'll need to download the full package data and find out what
@@ -87,9 +133,6 @@ export async function downloadNpmPackage({
 		registryJson = versionlessPackageJson.versions[highestVersion];
 	}
 	const dist = registryJson.dist;
-	if (!destination) {
-		destination = path.resolve(Deno.cwd(), `./npm_packages/${packageName}/${registryJson.version}`);
-	}
 	const tarResponse = await fetch(dist.tarball);
 	if (!tarResponse.ok) {
 		throw new Error(
@@ -115,38 +158,22 @@ export async function downloadNpmPackage({
 
 	const streamReader = tarResponse.body.pipeThrough(new DecompressionStream("gzip")).getReader();
 	const untar = new Untar(streams.readerFromStreamReader(streamReader));
-	for await (const entry of untar) {
-		// Strip package/ from the beginning of the path.
-		if (!entry.fileName.startsWith("package/")) {
-			throw new Error(`Assertion failed, "${entry.fileName}" is not in the package directory.`);
-		}
-		const entryPath = entry.fileName.substring("package/".length);
 
-		const destinationPath = path.resolve(destination, entryPath);
-		if (entry.type == "directory") {
-			await fs.ensureDir(destinationPath);
-			continue;
-		}
-
-		await fs.ensureFile(destinationPath);
-		const file = await Deno.open(destinationPath, { write: true });
-		await streams.copy(entry, file);
-		file.close();
-	}
-
-	const needsPackageJson = downloadDependencies || downloadDevDependencies;
-	if (needsPackageJson) {
-		const packageJsonPath = path.resolve(destination, "package.json");
-		const packageJsonStr = await Deno.readTextFile(packageJsonPath);
-		const packageJson = JSON.parse(packageJsonStr);
-		const nodeModulesPath = path.resolve(destination, "node_modules");
-		if (downloadDependencies) {
-			await downloadPackageDependencies(packageJson.dependencies || {}, nodeModulesPath);
-		}
-		if (downloadDevDependencies) {
-			await downloadPackageDependencies(packageJson.devDependencies || {}, nodeModulesPath)
-		}
-	}
+	return {
+		packageName,
+		version: registryJson.version,
+		registryData: registryJson,
+		async *getPackageContents() {
+			for await (const entry of untar) {
+				// Strip package/ from the beginning of the path.
+				if (!entry.fileName.startsWith("package/")) {
+					throw new Error(`Assertion failed, "${entry.fileName}" is not in the package directory.`);
+				}
+				entry.fileName = entry.fileName.substring("package/".length);
+				yield entry;
+			}
+		},
+	};
 }
 
 async function downloadPackageDependencies(depencencies: Record<string, string>, destination: string) {
