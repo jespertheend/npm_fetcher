@@ -1,4 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.167.0/testing/asserts.ts";
+import { assertSpyCall, assertSpyCalls, spy } from "https://deno.land/std@0.167.0/testing/mock.ts";
 import { downloadNpmPackage, fetchNpmPackage } from "../mod.ts";
 
 Deno.test({
@@ -52,6 +53,29 @@ Deno.test({
 		} finally {
 			Deno.chdir(cwd); // https://github.com/denoland/deno/issues/15849
 			await Deno.remove(dirPath, { recursive: true });
+		}
+	},
+});
+
+Deno.test({
+	name: "Fetch without getting any files",
+	async fn() {
+		const fetchSpy = spy(globalThis, "fetch");
+
+		try {
+			const packageData = await fetchNpmPackage({
+				packageName: "rollup-plugin-resolve-url-objects",
+				version: "0.0.4",
+			});
+			assertEquals(packageData.packageName, "rollup-plugin-resolve-url-objects");
+			assertEquals(packageData.version, "0.0.4");
+			assertEquals(packageData.registryData.name, "rollup-plugin-resolve-url-objects");
+			assertSpyCalls(fetchSpy, 1);
+			assertSpyCall(fetchSpy, 0, {
+				args: ["https://registry.npmjs.org/rollup-plugin-resolve-url-objects/0.0.4"],
+			});
+		} finally {
+			fetchSpy.restore();
 		}
 	},
 });

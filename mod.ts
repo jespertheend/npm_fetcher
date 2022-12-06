@@ -12,11 +12,13 @@ interface NpmPackage {
 	version: string;
 	description: string;
 	dist: NpmPackageDist;
+	[index: string | number | symbol]: unknown;
 }
 
 interface NpmPackageDist {
 	tarball: string;
 	shasum: string;
+	[index: string | number | symbol]: unknown;
 }
 
 export interface FetchNpmPackageOptions {
@@ -50,7 +52,7 @@ export interface DownloadNpmPackageOptions extends FetchNpmPackageOptions {
 }
 
 /**
- * Fetches package distribution information from npm and
+ * Fetches package distribution information from npm and writes the contents of the package to disk.
  */
 export async function downloadNpmPackage({
 	packageName,
@@ -92,12 +94,23 @@ export async function downloadNpmPackage({
 }
 
 export interface FetchedNpmPackageData {
+	/** The name of the package as returned by the npm registry api */
 	packageName: string;
+	/** The version of the package as returned by the npm registry api */
 	version: string;
+	/** Starts downloading the contents of the package. */
 	getPackageContents(): AsyncGenerator<TarEntry>;
+	/**
+	 * The raw registry data as returned by the npm registry api.
+	 * The types of this object are incomplete, but this value contains the full
+	 * json data from the registry.
+	 */
 	registryData: NpmPackage;
 }
 
+/**
+ * Fetches npm package metadata and returns an object that can be used to download the full package.
+ */
 export async function fetchNpmPackage({
 	packageName,
 	version = "latest",
@@ -113,7 +126,7 @@ export async function fetchNpmPackage({
 		registryNeedsVersion = true;
 	}
 
-	let url;
+	let url: string;
 	if (registryNeedsVersion) {
 		url = `https://registry.npmjs.org/${packageName}/${version}`;
 	} else {
@@ -132,38 +145,39 @@ export async function fetchNpmPackage({
 		}
 		registryJson = versionlessPackageJson.versions[highestVersion];
 	}
-	const dist = registryJson.dist;
-	const tarResponse = await fetch(dist.tarball);
-	if (!tarResponse.ok) {
-		throw new Error(
-			`Failed to fetch ${packageName}@${version}, ${url} responded with an invalid status code: ${tarResponse.status}`,
-		);
-	}
-
-	// Verify the shasum
-	{
-		const tarBlob = await tarResponse.clone().blob();
-		const tarArrayBuffer = await tarBlob.arrayBuffer();
-		const digestedSum = await crypto.subtle.digest("SHA-1", tarArrayBuffer);
-		const hashArray = Array.from(new Uint8Array(digestedSum));
-		const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-		if (hashHex !== dist.shasum) {
-			throw new Error(`Failed to fetch ${packageName}@${version}, checksum failed`);
-		}
-	}
-
-	if (!tarResponse.body) {
-		throw new Error("Assertion failed, response body is null.");
-	}
-
-	const streamReader = tarResponse.body.pipeThrough(new DecompressionStream("gzip")).getReader();
-	const untar = new Untar(streams.readerFromStreamReader(streamReader));
 
 	return {
 		packageName,
 		version: registryJson.version,
 		registryData: registryJson,
 		async *getPackageContents() {
+			const dist = registryJson.dist;
+			const tarResponse = await fetch(dist.tarball);
+			if (!tarResponse.ok) {
+				throw new Error(
+					`Failed to fetch ${packageName}@${version}, ${url} responded with an invalid status code: ${tarResponse.status}`,
+				);
+			}
+
+			// Verify the shasum
+			{
+				const tarBlob = await tarResponse.clone().blob();
+				const tarArrayBuffer = await tarBlob.arrayBuffer();
+				const digestedSum = await crypto.subtle.digest("SHA-1", tarArrayBuffer);
+				const hashArray = Array.from(new Uint8Array(digestedSum));
+				const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+				if (hashHex !== dist.shasum) {
+					throw new Error(`Failed to fetch ${packageName}@${version}, checksum failed`);
+				}
+			}
+
+			if (!tarResponse.body) {
+				throw new Error("Assertion failed, response body is null.");
+			}
+
+			const streamReader = tarResponse.body.pipeThrough(new DecompressionStream("gzip")).getReader();
+			const untar = new Untar(streams.readerFromStreamReader(streamReader));
+
 			for await (const entry of untar) {
 				// Strip package/ from the beginning of the path.
 				if (!entry.fileName.startsWith("package/")) {
