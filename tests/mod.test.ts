@@ -1,6 +1,6 @@
-import { assertEquals } from "https://deno.land/std@0.167.0/testing/asserts.ts";
+import { assertEquals, assertThrows } from "https://deno.land/std@0.167.0/testing/asserts.ts";
 import { assertSpyCall, assertSpyCalls, spy } from "https://deno.land/std@0.167.0/testing/mock.ts";
-import { downloadNpmPackage, fetchNpmPackage } from "../mod.ts";
+import { downloadNpmPackage, fetchNpmPackage, splitNameAndVersion } from "../mod.ts";
 
 Deno.test({
 	name: "Fetch package data",
@@ -77,5 +77,59 @@ Deno.test({
 		} finally {
 			fetchSpy.restore();
 		}
+	},
+});
+
+Deno.test({
+	name: "splitNameAndVersion()",
+	fn() {
+		assertEquals(splitNameAndVersion("@rollup/plugin-alias@4.0.2"), {
+			packageName: "@rollup/plugin-alias",
+			version: "4.0.2",
+		});
+		assertEquals(splitNameAndVersion("package@latest"), {
+			packageName: "package",
+			version: "latest",
+		});
+		assertEquals(splitNameAndVersion("a@b@c@version"), {
+			packageName: "a@b@c",
+			version: "version",
+		});
+		assertEquals(splitNameAndVersion("@@@version"), {
+			packageName: "@@",
+			version: "version",
+		});
+
+		assertThrows(
+			() => {
+				splitNameAndVersion("");
+			},
+			Error,
+			"The provided string is empty",
+		);
+
+		assertThrows(
+			() => {
+				splitNameAndVersion("package");
+			},
+			Error,
+			"The provided string contains no version",
+		);
+
+		assertThrows(
+			() => {
+				splitNameAndVersion("package@");
+			},
+			Error,
+			"The provided string contains no version",
+		);
+
+		assertThrows(
+			() => {
+				splitNameAndVersion("@version");
+			},
+			Error,
+			"The provided string contains no package name",
+		);
 	},
 });

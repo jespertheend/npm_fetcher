@@ -190,6 +190,31 @@ export async function fetchNpmPackage({
 	};
 }
 
+/**
+ * Splits a string such as "@rollup/plugin-alias@4.0.2" into a name string: "@rollup/plugin-alias" and version: "4.0.2".
+ */
+export function splitNameAndVersion(nameAndVersion: string) {
+	if (!nameAndVersion) {
+		throw new Error("The provided string is empty");
+	}
+	const index = nameAndVersion.lastIndexOf("@");
+	if (index == -1) {
+		throw new Error("The provided string contains no version");
+	}
+	const packageName = nameAndVersion.slice(0, index);
+	const version = nameAndVersion.slice(index + 1);
+	if (!packageName) {
+		throw new Error("The provided string contains no package name");
+	}
+	if (!version) {
+		throw new Error("The provided string contains no version");
+	}
+	return {
+		packageName,
+		version,
+	};
+}
+
 async function downloadPackageDependencies(depencencies: Record<string, string>, destination: string) {
 	for (const [packageName, version] of Object.entries(depencencies)) {
 		await downloadNpmPackage({
