@@ -133,3 +133,27 @@ Deno.test({
 		);
 	},
 });
+
+Deno.test({
+	name: "fetch @types package",
+	async fn() {
+		const packageData = await fetchNpmPackage({
+			packageName: "@types/three",
+			version: "0.148.0",
+		});
+
+		const fileNames: string[] = [];
+		for await (const entry of packageData.getPackageContents()) {
+			fileNames.push(entry.fileName);
+		}
+		fileNames.sort();
+		assertEquals(fileNames.length, 706);
+		assertEquals(fileNames.slice(0, 5), [
+			"three/",
+			"three/LICENSE",
+			"three/README.md",
+			"three/examples/",
+			"three/examples/jsm/",
+		]);
+	},
+});

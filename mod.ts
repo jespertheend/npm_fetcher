@@ -180,10 +180,7 @@ export async function fetchNpmPackage({
 
 			for await (const entry of untar) {
 				// Strip package/ from the beginning of the path.
-				if (!entry.fileName.startsWith("package/")) {
-					throw new Error(`Assertion failed, "${entry.fileName}" is not in the package directory.`);
-				}
-				entry.fileName = entry.fileName.substring("package/".length);
+				entry.fileName = entry.fileName.replace(/^package\//, "");
 				yield entry;
 			}
 		},
