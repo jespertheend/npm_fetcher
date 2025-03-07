@@ -126,13 +126,25 @@ export async function fetchNpmPackage({
 		registryNeedsVersion = true;
 	}
 
+	let errorMessagePackageName: string;
 	let url: string;
 	if (registryNeedsVersion) {
 		url = `https://registry.npmjs.org/${packageName}/${version}`;
+		errorMessagePackageName = `${packageName}@${version}`;
 	} else {
 		url = `https://registry.npmjs.org/${packageName}`;
+		errorMessagePackageName = packageName;
 	}
 	const registryResponse = await fetch(url);
+	if (!registryResponse.ok) {
+		if (registryResponse.status == 404) {
+			throw new Error(
+				`Failed to fetch npm package information for "${errorMessagePackageName}" because it doesn't exist.`,
+			);
+		} else {
+			throw new Error(`Failed to fetch npm package information for "${errorMessagePackageName}".`);
+		}
+	}
 	let registryJson: NpmPackage;
 	if (registryNeedsVersion) {
 		registryJson = await registryResponse.json();
